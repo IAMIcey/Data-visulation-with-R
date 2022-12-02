@@ -1,0 +1,383 @@
+---
+title: "DATA VISULIZATION-SHINY"
+author: "IAMIcey"
+date: "2022-12-02"
+output: html_document
+runtime: shiny
+---
+
+
+## Funtion
+
+```{r eruptions, echo=FALSE}
+library(RSQLite)
+library(stringr)
+library(readr)
+library(dplyr)
+dcon <- dbConnect(SQLite(), dbname = '~/STAT605/final project/finalopen.db')
+
+res <- dbSendQuery(conn = dcon, "
+select `Issue.Date`, round(sum(`Amount.Due`),2) as l,
+ifnull(sum(case when county = 'R' then  1 end),0) as r1,
+ifnull(sum(case when county = 'BX' then  1 end),0) as r2,
+ifnull(sum(case when county = 'Q' then  1 end),0) as r3,
+ifnull(sum(case when county = 'NY' then  1 end),0) as r4,
+ifnull(sum(case when county = 'K' then  1 end),0) as r5
+from final_Open_Parking_and_Camera_Violations
+where `Issue.Date` between '2018-01' and '2021-12'
+group by `Issue.Date`;
+")
+df_flower <- dbFetch(res, -1)
+dbClearResult(res)
+
+df_flower_table <- df_flower
+colnames(df_flower_table) <- c('Issue.Date','Amount.Due','R','BX','Q','NY','K')
+
+for(i in 1:nrow(df_flower)){
+  df_flower[i,3:7] <- order(as.matrix(df_flower[i,3:7]))/100
+}
+df_flower[,2] <- df_flower[,2]*(1.2)/(max(df_flower[,2])*2)
+df_economy <- read.csv('~/STAT605/final project/Book1.csv')
+df_economy$Date <- str_sub(as.Date(df_economy$Date,'%m/%d/%Y'),1,7)
+df_economy <- df_economy %>% 
+  filter(Date >= '2018-01' & Date <= '2021-12') %>% 
+  group_by(Date) %>% 
+  summarise(WEI = mean(WEI))
+df_economy$WEI <- df_economy$WEI/20
+
+library(ggplot2)
+Eco_data <- as.data.frame(read_csv("~/STAT605/WEEK6/week 7/Book1.csv"))
+Eco_data$Date <- as.Date(Eco_data$Date,'%m/%d/%Y')
+Eco_from_2018 <- filter(Eco_data, Date >= '2018-01-01' )
+Eco_from_2018['WEI 13 week moving average'] <- Eco_from_2018$WEI
+for(i in 13:nrow(Eco_from_2018)){
+  Eco_from_2018$`WEI 13 week moving average`[i] <- mean(Eco_from_2018$WEI[(i-12):i])
+}
+library(grid)
+library(stringr)
+library(scales)
+library(DT)
+
+x1 <- 0.7
+y1 <- 0.3
+### draw lines
+draw_lines <- function(a,b,month = '01'){
+  color_line <- get_color(month)
+  grid.lines(x = c(x1,a),y = c(y1,b),gp=gpar(col = color_line ))
+  grid.text(month,x = a,y = b,gp = gpar(fontsize=15))
+}
+
+
+### draw coordinate
+draw_coor <- function(a,b,l){
+  if(b == y1+0.1){
+    if(a == x1){
+      y <- y1 + l
+      x <- x1
+      coor <- c(x,y)
+    }
+    if(a != x1){
+      l_ab <- sqrt((a-x1)^2+(b-y1)^2)
+      y <- y1 + l * abs(b-y1)/l_ab
+      x <- ((y - y1) * (a - x1)/(b - y1)) + x1
+      coor <- c(x,y)
+    }
+
+  }
+  if(b == y1-0.1){
+    if(a == x1){
+      y <- y1 - l
+      x <- x1
+      coor <- c(x,y)
+    }
+    if(a != x1){
+      l_ab <- sqrt((a-x1)^2+(b-y1)^2)
+      y <-y1 - l * abs(b-y1)/l_ab
+      x <- ((y - y1) * (a - x1)/(b - y1)) + x1
+      coor <- c(x,y)
+    }
+
+  }
+  if(a == x1-0.1){
+    l_ab <- sqrt((a-x1)^2+(b-y1)^2)
+    x <- x1 - l * abs(a-x1)/l_ab
+    y <- y1 + (b-y1)*(x-x1)/(a-x1)
+    coor <- c(x,y)
+    
+  }
+  if(a == x1+0.1){
+    l_ab <- sqrt((a-x1)^2+(b-y1)^2)
+    x <- x1 + l * abs(a-x1)/l_ab
+    y <- y1 + (b-y1)*(x-x1)/(a-x1)
+    coor <- c(x,y)
+    
+  }
+  return(coor)
+}
+
+## draw the coordinate of date
+date_coordinate <- function(date){
+  
+  seq_Date <- seq.Date(from = as.Date("2018-01-01",format = "%Y-%m-%d"), by = "month", length.out = 48)
+  Date <- str_sub(as.character(seq_Date),1,7)
+  x <- as.vector(0);x_top <- as.vector(0);x_right <- as.vector(0);x_bottom <- as.vector(0);x_left <- as.vector(0)
+  y <- as.vector(0);y_top <- as.vector(0);y_right <- as.vector(0);y_bottom <- as.vector(0);y_left <- as.vector(0)
+  for(j in 1:12){
+    x_top[j] <- (x1-0.1)+0.2/13*j
+    y_top[j] <- y1+0.1
+  }
+  for(j in 1:12){
+    x_right[j] <- x1+0.1
+    y_right[j] <- (y1+0.1)-0.2/13*j
+  }
+  for(j in 1:12){
+    x_bottom[j] <- (x1+0.1)-0.2/13*j
+    y_bottom[j] <- (y1-0.1)
+  }  
+  for(j in 1:12){
+    x_left[j] <- (x1-0.1)
+    y_left[j] <- (y1-0.1)+0.2/13*j
+  }
+  
+  
+  x <- c(x_top,x_right,x_bottom,x_left)
+  y <- c(y_top,y_right,y_bottom,y_left)
+  df_date <- data.frame(coordinate_x = x,coordinate_y = y, date = Date)
+  
+  locate <- as.vector(0)
+  for(k in 1:length(date)){
+    locate[k] <- which(str_detect(df_date$date,date[k]))
+  }
+  return(df_date[locate,1:2])
+}
+draw_circle <- function(a,b,r1,r2,r3,r4,r5,county,fill_p = 'grey'){
+    if(sum(county == 'BX') == 1){
+      x <- a + r1*cos(72*pi/180)
+      y <- b + r1*sin(72*pi/180)
+      grid.circle(x,y,r1,gp = gpar(col = 'red',lwd = 5,fill = fill_p,alpha = 0.5))
+    }
+    if(sum(county == 'K') == 1){
+      x <- a - r2*cos(36*pi/180)
+      y <- b + r2*sin(36*pi/180)
+      grid.circle(x,y,r2,gp = gpar(col = 'blue',lwd = 5,fill = fill_p,alpha = 0.5))
+    }
+    if(sum(county == 'NY') == 1){
+      x <- a - r3*cos(36*pi/180)
+      y <- b - r3*sin(36*pi/180)
+      grid.circle(x,y,r3,gp = gpar(col = 'orange',lwd = 5,fill = fill_p,alpha = 0.5))
+    }
+    if(sum(county == 'Q') == 1){
+      x <- a + r4*cos(72*pi/180)
+      y <- b - r4*sin(72*pi/180)
+      grid.circle(x,y,r4,gp = gpar(col = 'green',lwd = 5,fill = fill_p,alpha = 0.5))
+    }
+    if(sum(county == 'R') == 1){
+      x <- a + r5
+      y <- b 
+      grid.circle(x,y,r5,gp = gpar(col = 'pink',lwd = 5,fill = fill_p,alpha = 0.5))
+    }
+}
+
+get_length <- function(date){
+  as.vector(df_flower[which(df_flower$Issue.Date == date),][2:7])
+}
+
+draw_flower <- function(date,l = 0.3,r1 = 0.01,r2 = 0.02,r3 = 0.03,r4 = 0.04,r5 = 0.05,county = c('BX','NY','Q','K','R')){
+  l <- get_length(date)$l
+  r1 <- get_length(date)$r1
+  r2 <- get_length(date)$r2
+  r3 <- get_length(date)$r3
+  r4 <- get_length(date)$r4
+  r5 <- get_length(date)$r5
+  a <- date_coordinate(date)[1,1]
+  b <- date_coordinate(date)[1,2]
+  c <- draw_coor(a,b,l)[1]
+  d <- draw_coor(a,b,l)[2]
+  m <- draw_economy(a,b,date,l)[1]
+  n <- draw_economy(a,b,date,l)[2]
+  draw_circle(c,d,r1,r2,r3,r4,r5,county)
+  draw_lines(c,d,substring(date,6))
+  return (c(m,n))
+}
+
+month <- c('01','02','03','04','05','06','07','08','09','10','11','12')
+month_color <- data.frame(month =month, color = c(viridis_pal()(12)))
+get_color <- function(month){
+  month_color[which(month_color$month == month),2]
+}
+
+show_data <- function(date,county){
+  index <- as.vector(0)
+  for(i in 1:length(date)){
+    index[i] <- which(df_flower_table$Issue.Date == date[i])
+  }
+  subset(df_flower_table[index,],select=c('Issue.Date','Amount.Due',county))
+}
+
+get_economy_li <- function(date){
+  df_economy[which(df_economy$Date == date),2]
+}
+
+draw_economy <- function(a,b,date,l){
+  l1 <- l + get_economy_li(date)$WEI
+  draw_coor(a,b,l1)
+}
+
+```
+
+## shiny plot
+
+
+```{r,warning=FALSE,message=FALSE}
+library(shiny)
+library(shinyWidgets)
+library(bubblyr)
+library(shinyjqui)
+library(echarts4r)
+library(dplyr)
+year <- c('2018','2019','2020','2021')
+month <- c('01','02','03','04','05','06','07','08','09','10','11','12')
+ui <- fluidPage(
+  titlePanel("Violations in NY"),
+  #bubbly(theme = "bigmom"),
+      selectInput('effect', NULL, choices = get_jqui_effects()),
+      actionButton('show', 'Show'),
+      actionButton('hide', 'Hide'),
+  sidebarLayout(
+    sidebarPanel(
+      pickerInput('Year', 'Choose a year', year,multiple = TRUE),
+      pickerInput("choicePickermonth", "Choose month(s):", choices = month, multiple = TRUE),
+      pickerInput("choicePickercounty", "Choose county(s):", choices = c(" Richmond(Pink)" = "R",
+                     "Kings(Blue)" = "K",
+                     "Queens(Green)" = "Q",
+                     "Bronx(Red)" = "BX",
+                     " New York(Yellow)" = "NY"), multiple = TRUE)),
+    
+    mainPanel(
+            tabsetPanel(type = "tabs",
+                  tabPanel("Plot", plotOutput("plot")),
+                  #tabPanel("Summary", verbatimTextOutput("outyear"),
+                           #verbatimTextOutput("outmonth"),
+                           #verbatimTextOutput("outPicker")),
+                  tabPanel("Table", DT::dataTableOutput("table")),
+                  tabPanel("Economy Plot", echarts4rOutput("plot1"))),
+              )
+  ),
+  switchInput('Economy of NY:',
+   inputId = "Id014",
+   onStatus = "success", 
+    offStatus = "danger"
+),#verbatimTextOutput("value")
+)
+server <- function(input, output) {
+  library(grid)
+  library(stringr)  
+  output$outyear <- renderPrint({
+    input$Year
+  })
+  output$outmonth <- renderPrint({
+    input$choicePickermonth
+  })
+
+  output$outPicker <- renderPrint({
+    input$choicePickercounty
+  })
+  observeEvent(input$show, {
+    jqui_show('#plot', effect = input$effect)
+  })
+  
+  observeEvent(input$hide, {
+    jqui_hide('#plot', effect = input$effect)
+  })
+  #output$value <- renderPrint({input$Id014})
+  output$plot <- renderPlot({
+    if(length(input$choicePickermonth) >= 2){
+    grid.newpage()
+    vp <- viewport(x = 0.5, y = 0.5,width = 1,height = 1)
+    pushViewport(vp)
+    grid.rect(x1,y1,0.2,0.2)
+    grid.text('2018',0.7,0.38)
+    grid.text('2019',0.78,0.3,rot = -90)
+    grid.text('2020',0.7,0.22)
+    grid.text('2021',0.62,0.3,rot = 90)
+      m_x <- as.vector(0)
+      n_y <- as.vector(0)
+      for(i in 1:length(input$Year)){
+      for(t in 1:length(input$choicePickermonth)){
+      time <- paste0(input$Year[i],'-',input$choicePickermonth[t])
+      draw_flower(time,county = input$choicePickercounty)
+      if(input$Id014 == 'TRUE'){
+    grid.points(draw_flower(time,county = input$choicePickercounty)[1],draw_flower(time,county = input$choicePickercounty)[2])}
+      m_x <- c(m_x,draw_flower(time,county = input$choicePickercounty)[1])
+      n_y <- c(n_y,draw_flower(time,county = input$choicePickercounty)[2])
+    }
+      }
+    if(input$Id014 == 'TRUE'){
+    grid.xspline(m_x[-1],n_y[-1],gp = gpar(col = 'darkgreen'),shape = 0.3)} }
+    
+    if(length(input$choicePickermonth)<2) {
+   grid.newpage()
+    vp <- viewport(x = 0.5, y = 0.5,width = 1,height = 1)
+    pushViewport(vp)
+    grid.rect(x1,y1,0.2,0.2)
+    grid.text('2018',0.7,0.38)
+    grid.text('2019',0.78,0.3,rot = -90)
+    grid.text('2020',0.7,0.22)
+    grid.text('2021',0.62,0.3,rot = 90)
+      m_x <- as.vector(0)
+      n_y <- as.vector(0)
+      for(i in 1:length(input$Year)){
+      for(t in 1:length(input$choicePickermonth)){
+      time <- paste0(input$Year[i],'-',input$choicePickermonth[t])
+      draw_flower(time,county = input$choicePickercounty)
+      if(input$Id014 == 'TRUE'){
+    grid.points(draw_flower(time,county = input$choicePickercounty)[1],draw_flower(time,county = input$choicePickercounty)[2])}
+      m_x <- c(m_x,draw_flower(time,county = input$choicePickercounty)[1])
+      n_y <- c(n_y,draw_flower(time,county = input$choicePickercounty)[2])
+    }
+    }
+    
+    }},height = 400,width = 400)
+  
+  
+  output$table <- DT::renderDataTable(DT::datatable({
+    time <- as.vector(0)
+    k <- 1
+    for(i in 1:length(input$Year)){
+      for(j in 1:length(input$choicePickermonth)){
+        time[k] <- paste0(input$Year[i],'-',input$choicePickermonth[j])
+        k <- k+1
+      }
+    }
+    show_data(time,input$choicePickercounty)
+  }))
+  
+  output$plot1 <- renderEcharts4r({
+    
+Eco_plot <- Eco_from_2018 %>%
+  e_charts(x = Date) %>%
+  e_line(serie = WEI) %>%
+  e_line(serie = `WEI 13 week moving average`) %>%
+  e_tooltip(trigger = "axis",axisPointer = list(type = "cross")) %>%
+  e_datazoom(type = "slider")
+Eco_plot %>%
+  e_grid(right = '15%') %>%
+  e_legend(orient = 'vertical', 
+           right = '5', top = '15%') %>%
+  e_title(text = 'Weekly Economic Index (WEI) of NewYork City',left = "center")
+  
+
+  })
+}
+
+shinyApp(ui,server)
+```
+
+Note the use of the `height` parameter to determine how much vertical space the embedded application should occupy.
+
+You can also use the `shinyApp` function to define an application inline rather then in an external directory.
+
+In all of R code chunks above the `echo = FALSE` attribute is used. This is to prevent the R code within the chunk from rendering in the document alongside the Shiny components.
+
+
+
