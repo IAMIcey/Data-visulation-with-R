@@ -1,0 +1,728 @@
+\documentclass[10pt]{article}
+\usepackage[left=1in,right=1in,top=1in,bottom=1in]{geometry}
+\usepackage{float}
+\usepackage{graphicx}
+\graphicspath{ {./images/} }
+\begin{document}
+\title{Group 1: Analysis on NYC Open Parking and Camera Violations}
+\author{Bingrui Chen, Jinglin Gao, Jiaowei Li, Yaopeng Ma}
+\maketitle
+<<echo= FALSE,results='hide',message=FALSE,warning=FALSE, include=FALSE>>=
+library(RSocrata)
+library(ggplot2)
+library(reshape) 
+library(RColorBrewer)
+library(readxl)
+library(dplyr)
+library(tidyverse)
+library(openxlsx)
+library(magrittr)
+library(RSQLite)
+library(knitr)
+library(kableExtra)
+#setwd("C:/Users/2333/Documents/STAT605/data");
+dcon <- dbConnect(SQLite(), dbname = "~/STAT605/week9/open.db")
+res <- dbSendQuery(conn = dcon, "
+SELECT 
+  Plate,
+  State,
+  LicenseType,
+  IssueDate,
+  ViolationTime,
+  Violation,
+  FineAmount,
+  PenaltyAmount,
+  InterestAmount,
+  ReductionAmount,
+  PaymentAmount,
+  AmountDue,
+  Precinct,
+  County
+ FROM
+  open_parking_and_camera_violations
+ WHERE 
+  ViolationTime IS NOT NULL 
+  AND
+  IssueDate  >'01-01-2018';")
+df <- dbFetch(res, -1)
+df
+dbClearResult(res)
+##################################################################################################
+#Ma Yaopeng
+
+# mdf <- read.csv(file = "E:/STAT_605/data/mOpen_Parking_and_Camera_Violations.csv")
+dcon2 <- dbConnect(SQLite(), dbname = "~/STAT605/week9/mOpen_Parking_and_Camera_Violations.db")
+res2 <- dbSendQuery(conn = dcon2, "
+SELECT 
+ IssueDate,
+ SummonsNumber
+ FROM
+ mOpen_Parking_and_Camera_Violations
+ WHERE 
+SummonsNumber IS NOT NULL;")
+mdf <- dbFetch(res2, -1)
+dbClearResult(res2)
+
+dcon1 <- dbConnect(SQLite(), dbname = "~/STAT605/week9/Parking_Violations_Issued_-_Fiscal_Year_2018.db")
+res1 <- dbSendQuery(conn = dcon1, "
+SELECT 
+ SummonsNumber,
+ VehicleMake,
+ IssueDate,
+ lower(StreetName)
+ FROM
+  Parking_Violations_Issued_Fiscal_Year_2018
+ WHERE 
+  StreetName Is not null;")
+fis_2018 <- dbFetch(res1, -1)
+dbClearResult(res1)
+
+# fis_2018 <- read.csv('E:/STAT_605/data/Parking_Violations_Issued_-_Fiscal_Year_2018.csv')
+# fis_2018 <- select(fis_2018,Summons.Number, Vehicle.Make, Issue.Date)
+# fis_2019 <- fread('data/Parking_Violations_Issued_-_Fiscal_Year_2019.csv', 
+#                   select = c('Summons Number', 'Vehicle Make', 'Issue Date'), check.names = T)
+# fis_2020 <- fread('data/Parking_Violations_Issued_-_Fiscal_Year_2020.csv', 
+#                   select = c('Summons Number', 'Vehicle Make', 'Issue Date'), check.names = T)
+# fis_2021 <- fread('data/Parking_Violations_Issued_-_Fiscal_Year_2021.csv', 
+#                   select = c('Summons Number', 'Vehicle Make', 'Issue Date'), check.names = T)
+# fis_2022 <- fread('data/Parking_Violations_Issued_-_Fiscal_Year_2022.csv', 
+#                   select = c('Summons Number', 'Vehicle Make', 'Issue Date'), check.names = T)
+
+
+
+# fis_2018 %>% filter(!is.na(fis_2018$Issue.Date))
+fis_2018$IssueDate <- as.Date(fis_2018$IssueDate,'%m/%d/%Y')
+mdf$IssueDate <- as.Date(mdf$IssueDate,'%m/%d/%Y')
+
+joint_2018 <- right_join(mdf, fis_2018, by = "SummonsNumber")
+
+car_df <- as.data.frame(table(list(joint_2018$VehicleMake)))
+colnames(car_df) <- c('VehicleMake', 'Number')
+pie_data <- car_df %>% select(VehicleMake, Number) %>% filter(Number > 100)
+
+pie_data <- pie_data[order(pie_data$Number, decreasing = T),]
+pie_data <- pie_data[1:20,]
+
+
+
+# car_make <- fread('data/Vehicle_Makes_and_Body_Types__Most_Popular_in_New_York_State.csv')
+
+
+dcon3 <- dbConnect(SQLite(), dbname = "~/STAT605/week9/Vehicle__Snowmobile__and_Boat_Registrations.db")
+res3 <- dbSendQuery(conn = dcon3, "
+SELECT 
+ RecordType,
+ Make
+ FROM
+ Vehicle_Snowmobile_and_Boat_Registrations
+ WHERE 
+  Make IS NOT NULL;")
+car_make <- dbFetch(res3, -1)
+dbClearResult(res3)
+
+# car_make <- read.csv('E:/STAT_605/data/Vehicle__Snowmobile__and_Boat_Registrations.csv')
+car_make <- car_make %>% select(Make,RecordType) %>% filter(RecordType == "VEH")
+
+top_registed <- as.data.frame(table(list(car_make$Make)))
+colnames(top_registed) <- c('Vehicle.Make', 'Number')
+registed_pie <- top_registed %>% select(Vehicle.Make, Number) %>% filter(Number > 1000)
+
+registed_pie <- registed_pie[order(registed_pie$Number, decreasing = T),]
+registed_pie <- registed_pie[1:20,]
+
+pie(pie_data$Number, labels = pie_data$Vehicle.Make,
+   main="Pie Chart of Violations Vehicle Makes ", cex = 0.5, col = rainbow(20))
+
+pie(registed_pie$Number, labels = registed_pie$Vehicle.Make, cex = 0.6,
+    main = " Pie Chart of Most popular Cars in NYC", col = rainbow(20))
+
+
+###################################################################################################
+# Chen bingrui
+state <- df$State
+vio_time <- df$ViolationTime
+issue_date <- df$IssueDate
+
+timeform <- function (x){
+  frame <- substring(x,6,6)
+  rest <- substring(x, 1, 5)
+  time <- strsplit(rest, ":")
+  time[[1]][1]
+  
+  if (frame == "A"){
+    timenow <- strtoi(time[[1]][1],base = 10L) *100 + strtoi(time[[1]][2],base = 10L)
+  }else{
+    timenow <-(strtoi(time[[1]][1],base = 10L)+12) * 100 + strtoi(time[[1]][2],base = 10L)
+  }
+  timenow
+}
+d<- as.vector(0)
+ for(i in 1:nrow(df)){
+    d[i]<- timeform(vio_time[i])
+}
+
+df['time'] <- d
+
+calculate <- function(x){
+  time <- x$time
+  df_rush_hour1 <- x[which(time > 730 & time <930),]
+  df_rush_hour2 <- x[which(time > 1300 & time < 1900),]
+  df_before_rush <- x[which(time < 730),]
+  df_mid <- x[which(time > 930 & time < 1300),]
+  df_night <- x[which(time > 1900),]
+  nrow(df_before_rush)
+  nrow(df_rush_hour1)
+  nrow(df_rush_hour2)
+  nrow(df_mid)
+  nrow(df_night)
+  bar_height <- c(nrow(df_before_rush),nrow(df_rush_hour1),nrow(df_mid),nrow(df_rush_hour2),
+                  nrow(df_night))
+  bar_height
+}
+
+date <- as.Date(df$IssueDate,'%m/%d/%Y')
+
+df_2019 <- df[which(date < '2019-12-31'& date > '2019-01-01'),]
+## 2020
+df_2020 <- df[which(date < '2020-12-31' &date >= '2020-01-01' ),]
+## 2021
+df_2021 <-  df[which(date > '2021-01-01' & date < '2021-12-31'),]
+## 2022
+df_2022 <- df[which(date > '2022-01-01'),]
+
+calculate(df_2019)
+calculate(df_2020)
+calculate(df_2021)
+calculate(df_2022)
+
+height_data <- c(calculate(df_2019)[1], calculate(df_2019)[2], calculate(df_2019)[3], calculate(df_2019)[4], calculate(df_2019)[5],
+                 calculate(df_2020)[1], calculate(df_2020)[2], calculate(df_2020)[3], calculate(df_2020)[4], calculate(df_2020)[5],
+                 calculate(df_2021)[1], calculate(df_2021)[2], calculate(df_2021)[3], calculate(df_2021)[4], calculate(df_2021)[5], 
+                 calculate(df_2022)[1], calculate(df_2022)[2], calculate(df_2022)[3], calculate(df_2022)[4], calculate(df_2022)[5])
+height_mat <- matrix(height_data,nrow = 4,byrow = TRUE)
+
+total_2022 <- calculate(df_2022)
+df_BX <- df_2022[which(df_2022$County == 'BX'),]
+df_K <- df_2022[which(df_2022$County == 'K'),]
+df_NY <- df_2022[which(df_2022$County == 'NY'),]
+df_Q <- df_2022[which(df_2022$County == 'Q'),]
+df_R <- df_2022[which(df_2022$County == 'R'),]
+BX <- calculate(df_BX)
+K <- calculate(df_K)
+NY <- calculate(df_NY)
+Q <- calculate(df_Q)
+R <- calculate(df_R)
+
+NUMBER <- c(BX,K,NY,Q,R)
+COUNTY <- c(rep('BX',5),rep('K',5),rep('NY',5),rep('Q',5),rep('R',5))
+times <- c('Before 7:30A','7:30A-9:30A','9:30A-1:00P','1:00P-7:00P','After 7:00P') 
+df_data <- data.frame(times = times,NUMBER = NUMBER,COUNTY = COUNTY)
+df_data$times <- factor(times,levels = c('Before 7:30A','7:30A-9:30A','9:30A-1:00P','1:00P-7:00P','After 7:00P') )
+
+
+
+dcon4 <- dbConnect(SQLite(), dbname = "~/STAT605/week9/book1.db")
+res4 <- dbSendQuery(conn = dcon4, "
+SELECT 
+ *
+ FROM
+ Book1;")
+Eco_data <- dbFetch(res4, -1)
+dbClearResult(res4)
+
+##Eco_data <- as.data.frame(read_csv("E:/STAT_605/data/Book1.csv"))
+
+Eco_data$Date <- as.Date(Eco_data$Date,'%m/%d/%Y')
+Eco_from_2018 <- filter(Eco_data, Date >= '2018-01-01' )
+Eco_from_2018['WEI 13 week moving average'] <- Eco_from_2018$WEI
+for(i in 13:nrow(Eco_from_2018)){
+  Eco_from_2018$`WEI 13 week moving average`[i] <- mean(Eco_from_2018$WEI[(i-12):i])
+}
+ggplot(data = Eco_from_2018,aes(x = Date)) + geom_point(aes(y = WEI),col = 'red') + geom_line(aes(y = WEI,color = 'WEI')) +geom_point(aes(y =`WEI 13 week moving average`),col = 'steelblue')+ geom_line(aes(y = `WEI 13 week moving average`,color = 'WEI 13 week moving average'))+scale_color_manual('Type', values=c('red', 'steelblue'))
+
+##################################################################################################################
+## Li Jiaowei
+R<-"Staten Island/Richmond County"
+Q<-"Queens/Queens County"
+K<-"Brooklyn/Kings County"
+BX<-"Bronx"
+NY<-"Manhattan/New York County"
+df$IssueDate <- as.Date(df$IssueDate,format = "%m/%d/%Y")
+ind <- 0
+Viola <- matrix(0,nrow = 1,ncol = 84)
+# 
+# findColor <- function(x){
+#   colors()[Viola[1,which(names(table(df$Violation))==x)]*10]
+# }
+
+# count <- 1
+# findCounty <- function(x){
+#   vio <- df[which(df$County==x),]$Violation
+#   vio <- table(vio)
+#   frequevio <- vio[which(vio >= mean(vio))]
+#   sapply(names(frequevio), function(x){
+#     n <- which(names(table(df$Violation)) == x)
+#     if(Viola[n] == 0)
+#     {Viola[n] <<- count
+#       count <<- count + 1}
+#     })
+#   color <- sapply(names(frequevio),findColor)
+#   if(x == "R"){
+#     m <- "Staten Island(Richmond County)"
+#   }else{
+#     m <- "Queens(Queens County)"
+#   }
+# 
+#   requevio <- as.data.frame(frequevio)
+#   par(mai = c(2, 0.5, 0.5, 0.5))
+#   xy <- par("usr")
+#   gra <- barplot(requevio$Freq, col = color,main = m,ylab = "Numbers")
+#   legend(x = xy[1] - xinch(0.2),
+#          y = xy[1] - yinch(0.1),
+#          legend = names(frequevio),
+#          fill = color,
+#          col = color,
+#          xjust = 0,
+#          yjust = 1,
+#          xpd = T,
+#          cex = 0.5)
+# }
+res5 <- dbSendQuery(conn = dcon, "
+SELECT 
+ Violation
+ FROM
+ Open_Parking_and_Camera_Violations
+ WHERE 
+  Violation IS NOT NULL 
+  AND
+  County='R'
+  AND
+  IssueDate > '01/01/2018';")
+Rcounty <- dbFetch(res5, -1)
+dbClearResult(res5)
+
+res5 <- dbSendQuery(conn = dcon, "
+SELECT 
+ Violation
+ FROM
+ Open_Parking_and_Camera_Violations
+ WHERE 
+  Violation IS NOT NULL 
+  AND
+  County='Q'
+  AND
+  IssueDate > '01/01/2018';")
+Qcounty <- dbFetch(res5, -1)
+
+#Color=matrix(NA,nrow = length(Rt),ncol = 2)
+dbClearResult(res5)
+Rt<-table(Rcounty$Violation)
+Color=matrix(NA,nrow = length(Rt),ncol = 2)
+Qt<-table(Qcounty$Violation)
+Rt<-Rt[which(Rt>mean(Rt))]
+Qt<-Qt[which(Qt>mean(Qt))]
+for (i in 1:length(Qt)) {
+  Color[i,1]=i+2*i-1
+  Color[i,2]=names(Qt[i])
+}
+par(mfrow=c(1,2),bty='l',cex.main=1.5)
+barplot(as.numeric(Rt),col = Color[,1],main="R",ylab = "Numbers")
+barplot(as.numeric(Qt),col = Color[,1],main="Q",ylab = "Numbers")
+
+Rt<-table(Rcounty$Violation)
+Rt<-Rt[which(Rt>mean(Rt))]
+
+M <- rep(1,12)
+Y <- 1:12
+for (i in 2:12) {
+  m <- rep(i,12)
+  y <- 1:12
+  M <- append(M,m)
+   Y <- append(Y,y)
+}
+my.lines1 <- data.frame(x = c(.5, 10.5, 10.5, 0.5, 12.5),
+                        y = c(3.5, 2.5, 2.5, 0.5, 0.5),
+                        xend = c(10.5, 10.5, 12.5, 0.5, 12.5),
+                        yend = c(3.5, 3.5, 2.5, 3.5, 2.5))
+my.lines2 <- data.frame(x = c(0.5, 3.5, 0.5,4.5,4.5,10.5,0.5,12.5),
+                        y = c(4.5, 3.5, 5.5, 5.5, 4.5, 3.5, 4.5, 3.5),
+                        xend=c(3.5, 3.5, 4.5, 4.5, 12.5, 12.5, 0.5, 12.5),
+                        yend=c(4.5, 4.5, 5.5, 4.5, 4.5, 3.5, 5.5, 4.5))
+my.lines3<-data.frame(x = c(11.5, 4.5, 0.5, 10.5, 10.5, 12.5, 0.5),
+                      y = c(4.5, 5.5, 8.5, 7.5, 7.5, 4.5, 5.5),
+                      xend = c(11.5, 11.5, 10.5, 10.5, 12.5, 12.5, 0.5),
+                      yend = c(5.5, 5.5, 8.5, 8.5, 7.5, 7.5, 8.5))
+my.lines4 <- data.frame(x = c(10.5, 3.5, 12.5, 7.5, 7.5, 0.5, 0.5, 0.5),
+                        y = c(8.5, 8.5, 8.5, 9.5, 9.5, 9.5, 10.5, 9.5),
+                        xend = c(12.5, 3.5, 12.5, 12.5, 7.5, 3.5, 7.5, 0.5),
+                        yend = c(8.5, 9.5, 9.5, 9.5, 10.5, 9.5, 10.5, 10.5))
+my.lines5 <- data.frame(x = c(11.5, 11.5, 0.5, 3.5, 0.5, 12.5),
+                        y = c(9.5, 10.5, 11.5, 10.5, 10.5, 9.5),
+                        xend = c(11.5, 12.5, 3.5, 3.5, 0.5, 12.5),
+                        yend = c(10.5, 10.5, 11.5, 11.5, 11.5, 10.5))
+precinct <- table(df$Precinct)
+name <- names(precinct)
+predata <- rep(NA, 144)
+bound <- matrix(0, nrow = 5,ncol = 2)
+bound[1, 1] = 40
+for (i in 1:144) {
+  predata[as.numeric(name[i])] = precinct[i]
+}
+predf<-matrix(predata,ncol = 12,nrow = 12)
+data_melt <- melt(predf)
+
+####################################################################################################################
+
+## Gao jinglin　
+df1 <- df[which(df$IssueDate >= "2017-01-01" & df$IssueDate <="2018-01-01"),]
+df2 <- df[which(df$IssueDate >= "2018-01-01" & df$IssueDate <="2019-01-01"),]
+df3 <- df[which(df$IssueDate >= "2019-01-01" & df$IssueDate <="2020-01-01"),]
+df4 <- df[which(df$IssueDate >= "2020-01-01" & df$IssueDate <="2021-01-01"),]
+df5 <- df[which(df$IssueDate >= "2021-01-01" & df$IssueDate <="2022-01-01"),]
+list <- list(df1,df2,df3,df4,df5)
+x <- matrix(nrow = 5,ncol = 5)
+for(i in 1:5){
+  k <- 1
+  for (j in levels(factor(df$County))){
+    a <- list[[i]][which(list[[i]]$County == j),]
+    x[i,k] <- sum(a$AmountDue)
+    k <- k+1
+  }
+}
+
+df11 <- data.frame(year = c("2017-01-01 to 2018-01-01","2018-01-01 to 2019-01-01","2019-01-01 to 2020-01-01",
+                             "2020-01-01 to 2021-01-01","2021-01-01 to 2022-01-01"),AmountDue = c(x[,1],x[,2],x[,3],x[,4],x[,5]),County = c(rep("BX",5),rep("K",5),rep("NY",5),rep("Q",5),rep("R",5)))
+
+f1 <- as.data.frame(table(df$Violation))
+colnames(f1) <- c("vio_type","times")
+ff1 <- f1[order(f1$times,decreasing = TRUE)[1:10],]
+num <- matrix(nrow = 5,ncol=10)
+m <- 1
+for(i in levels(factor(df$County))){
+  n <- 1
+  a <- df[which(df$County == i),]
+  for(j in levels(factor(ff1$vio_type))){
+    num[m,n] <- length(a[which(a$Violation == j),][,1])
+    n <- n+1
+  }
+  m <- m+1
+}
+##Secondary data about Population
+
+dcon4 <- dbConnect(SQLite(), dbname = "~/STAT605/week9/co-est2020-alldata.db")
+dbListTables(dcon4)
+res4 <- dbSendQuery(conn = dcon4, "
+SELECT 
+ *
+ FROM
+ coest2020alldata
+ WHERE 
+  CTYNAME IS NOT NULL;")
+pop_data <- dbFetch(res4, -1)
+dbClearResult(res4)
+# pop_data <- read.xlsx('~/STAT605/data/co-est2020-alldata',sheet = 1)
+
+#2018-2021 population in NY
+pop_NY <- pop_data %>% 
+  filter(CTYNAME == 'New York County') %>% 
+  select(POPESTIMATE2018,POPESTIMATE2019,POPESTIMATE2020,POPESTIMATE2021)
+#2018-2021 population in Q
+pop_Q <- pop_data %>% 
+  filter(CTYNAME == 'Queens County') %>% 
+  select(POPESTIMATE2018,POPESTIMATE2019,POPESTIMATE2020,POPESTIMATE2021)
+#2018-2021 population in R
+pop_R <- pop_data %>% 
+  filter(CTYNAME == 'Richmond County') %>% 
+  select(POPESTIMATE2018,POPESTIMATE2019,POPESTIMATE2020,POPESTIMATE2021)
+#2018-2021 population in BK
+pop_K <- pop_data %>% 
+  filter(CTYNAME == 'Kings County') %>% 
+  select(POPESTIMATE2018,POPESTIMATE2019,POPESTIMATE2020,POPESTIMATE2021)
+#2018-2021 population in BX
+pop_BX <- pop_data %>% 
+  filter(CTYNAME == ' Bronx County') %>% 
+  select(POPESTIMATE2018,POPESTIMATE2019,POPESTIMATE2020,POPESTIMATE2021)
+
+library(stringr)
+df_total <- rbind(pop_NY, pop_Q, pop_R,pop_K,pop_BX)
+df_sum <- apply(df_total,2,sum)
+df['Year'] <- str_sub(df$IssueDate,1,4)
+df_sum1 <- df %>%
+  filter(Year >= 2018 & Year < 2022) %>% 
+  group_by(Year) %>% 
+  summarise(num = n())
+
+final_data <- data.frame(year = c(2018,2019,2020,2021), violation_num = c(65602,34247,44168,13420),pop_num = as.numeric(df_sum))
+
+library(dplyr)
+df_economy <- read.csv('~/STAT605/final project/Book1.csv')
+df_economy$Date <- str_sub(as.Date(df_economy$Date,'%m/%d/%Y'),1,7)
+df_economy <- df_economy %>% 
+  filter(Date >= '2018-01' & Date <= '2021-12') %>% 
+  group_by(Date) %>% 
+  summarise(WEI = mean(WEI))
+df_economy$WEI <- df_economy$WEI/20
+
+## regression model
+#df$month <- str_sub(df$Issue.Date,1,7)
+df['month'] <- str_sub(df$IssueDate,1,7)
+df_sum2 <- df %>%
+  filter(Year >= 2018 & Year < 2022) %>% 
+  group_by(month) %>% 
+  summarise(num = n())
+new_df <- cbind(df_sum2,df_economy$WEI)
+library(nlme)
+library(mgcv)
+model <- gam(log(df_sum2$num) ~ s(log(df_economy$WEI+1)))
+
+@
+
+\section*{Introduction}
+New York City is notorious for the traffic and crazy drivers, for this project we would like to see if we can find some interesting things regarding the parking violations in New York City. The main data set we are using for this project is Open Parking Violations and Camera Violations in New York City from 2018 to 2021. The data is obtained from New York Open data website. For our project We are only going to focus on the parking violations. We expect the parking violations of a region would reflects how busy this region is. and we use supplementary data such as economic trends, registered cars in New York City, etc. 
+
+\section*{Data Description and Data Cleanning}
+\begin{table}[H]
+\caption{Columns in NYC Open Parking and Camera Violations}
+\begin{tabular}{ c | c | c }
+ Feature Name & data type & description \\\hline
+ Plate & text & license plate number  \\  
+ State & text  & State registered \\
+ License Type & text & Type of Vehicle \\
+ Issue Date & text & Date of Violation Occur \\
+ Violation Time & text & Time of Violation Occur \\
+ Violation & text & types of Violation \\
+ Judgement.Entry.Date & text & Final Recording of the Decision and Opinion \\
+ Fine.Amount & number& The Initial Amount \\
+ Penalty.Amount & number & The late fee \\
+ Interest.Amount & number & The interests on the unpaid amount \\
+ Reduction.Amount & number & Amount Deduct by Court \\
+ Payment.Amount & number & The amount of payment made \\
+ Amount.Due & number & The outstanding balance \\
+ Precinct & text & a district of a city or town as defined for police purpose \\
+ County & text & County names \\
+ Issuing Agency & text & department names\\
+ Violations.Status & text & result of hearing if applicable \\
+ Image Link & website link & images of the ticket
+\end{tabular}
+\end{table}
+The original data set contains over 15 million observations,and the file size is over 20 GB, and we are unable to load the entire data set into R. In order to minimize the data set without losing information beneath the data, we first inspect a small portion of data, there are 19 variables for each observation, first we noticed that the violations status has 95\% of values equal to Nan, so we decide to drop this variable. Also the image of the parking tickets provides the same information as other variables. also the other variables such as judgement entry date, reduction amount are also useless. Our first supplementary data is the parking violations by fiscal year which is collected by the department of finance in NYC. This data set has all the information regarding every parking ticket issued in New York City, it has the same summon numbers from our main data set, it also has the exacte location of the violation, it also has detailed description of the violation vehicles such as car make and car color. The second supplementary data set is obtained from Department of Motor Vehicle in New York City, which has information of all the registered vehicles in New York City
+ 
+\section*{Statements of Purpose}
+In this project, we are going to look into the data from four different aspects. the purposes of our project are stated as follows:
+\subsection*{Purpose 1:}
+New York City, also many people refer it as Financial Hub. According to New York University estimates, approximately 3.1 million people in Manhattan during the work day, compared to a residential population of 1.6 million. Most workers often commute from nearby regions(Long Island, New Jersey, even Connecticut). In some sense, the number of parking violations reflects the movement of people, thus we assume that if there is in a growing development trend, there will be more population movement ,which will increase the total number of violations. On the contrary, when recession occurs, there will be less population movement ,which we think will reduce the total number of violations. We use weekly economic index of New York City (WEI) to analyse the trend of development, and then we are going to compare the trend between WEI and the number of violations given the x-axis to be Date from 2018 till now. Due to the pandemic that started in 2020, and protest activities during the summer of 2020 would affects both economics and the way parking rules were enforced. 
+
+\subsection*{Purpose 2:}
+We also have a question about whether the parking violation is related to the population in the same county, because theoretically more people there are, the more violation would have. So we add secondary data about the population change of the five counties from 2018 to 2021, and then we will observe if they have the same tendency or follow the same distribution by ggplot visualization and some hypothesis tests.
+
+\subsection*{Purpose 3:}
+From figure 6, we found that there are big differences between Richmond County and Queens County. For example, for the Violation type [7], there are a lot of violations that happened in Queens County. However, only a few of the type [7] violations happened in Richmond County. What is more,  for the Violation type [5], we can see a prominent increasing number of violations in Richmond County compared with the other type of violations. Nevertheless, we found that Queens County did not show much more violations in this type of violation compared with the type[7]. Then we wonder if the proportion of all types of violations has a prominent difference between Queens County and Richmond County, or if it is just an exception. 
+
+\subsection*{Purpose 4:}
+We read an article about a study by researchers from the University of Nevada that suggests drivers of expensive cars are the worst. A similar experiment conducted by the University of Helsinki also noticed a higher percentage of luxury cars would those running through red lights and were unlikely to yield to pedestrians. Therefore, we want to see if this is true for parking violations. Our Parking Violations data set do not have any information regarding car make. Hence we collected detailed violations data through Department of Finance in New York City. Their violations data is stored by fiscal years and contains the vehicle make and violation number that can use to joint both dataset. Also, We obtained the data of all registered vehicle, boat and snowmobile from Department of Motor Vehicle of New York City. We want to compare the market share of top 30 car make to top 30 car make from violations data, to see if there is any anomaly.  
+
+\section*{Car Brand vs Market Share}
+We combined the Open Camera Violation and Parking violation data with the Parking data by fiscal year. Since both data contains the violation ticket number, we can use it to join both data set. First, we determined the top 20 car brand from violation lists, and plot a pie chart to see the distribution of these brand. Then we use the data collected from DMV to plot the market share of the top 20 most popular car brand. If people driving luxury cars are more prone to make parking violations, than we would expect that the luxury car in the first pie chart would have bigger percentage compare to the second pie chart.
+\begin{figure}[H]
+\begin{center}
+<<echo=FALSE,fig.width=5,fig.height=5>>=
+## plot New_2
+pie(pie_data$Number, labels = pie_data$VehicleMake,
+   main="Pie Chart of Violations Vehicle Makes ", cex = 0.5, col = rainbow(20))
+
+pie(registed_pie$Number, labels = registed_pie$Vehicle.Make, cex = 0.6,
+    main = " Pie Chart of Most popular Cars in NYC", col = rainbow(20))
+@
+\end{center}
+\caption{Comparison between the popularity of car brands and the total number of violations in NY city}\label{fig:fig-1}
+\end{figure}
+After comparing both pie charts, we see that the percentage of BMW, Mercedes-Benze and Infinity are higher in the violation pie chart.
+\section*{Data Visulazition by ggplot} 
+\subsection*{Plot for Violations in Different Time Frame}
+Figure \ref{fig:fig-1}: In this part, since we have analyzed the relationship between the total amount of violations at different times during the day, we are interested in the difference in the total amount of violations among different counties. We want to see if the plot would tell us something about how time frame would affects the number of violations given out.
+\begin{figure}[H]
+\begin{center}
+<<echo=FALSE,fig.width=7,fig.height=5>>=
+## plot 1
+ggplot(data = df_data,
+       aes(x = times,y = NUMBER,color = COUNTY,group = COUNTY))  + 
+  geom_point() + 
+  geom_line() + 
+  labs(x = "Times", y = "Number of violations") + 
+  ggtitle('Total number of violations in different counties') +
+  theme(plot.title = element_text(hjust = 0.5))
+
+@
+\end{center}
+\caption{Violations in Different Time Frame}\label{fig:fig-2}
+\end{figure}
+
+At rush hour between 1:00 pm to 7:00 pm, the number of violations reaches its maximum, and the daytime violations generally over the nighttime violations. But we can also see the difference between different counties. We can see that the line represents NY county is much higher than others, especially during rush hours. We think this is because most of the people work in NY and the incremental of vehicles on the road will increase the possibility of violations
+
+\subsection*{Plot for Amount of Payment by Years }
+Figure \ref{fig:fig-3}: Here we plot the amount of payment of violations by every county in NYC, we want to see if the trend can provide us any informations regarding people travelling in and out of NYC from beginning of 2017 to end of 2021.
+
+\begin{figure}[H]
+\begin{center}
+<<echo=FALSE,fig.width=7,fig.height=5>>=
+## plot 2
+ggplot(data = df11,
+       aes(x = year, y = AmountDue, 
+           group = County,
+           color = County)) + 
+  geom_line() + 
+  geom_point() + 
+  labs(x = "year", y = "Amount.Due") + 
+  ggtitle('Total payment of differnt County in different year') + 
+  theme(plot.title = element_text(hjust = 0.5),
+        axis.text.x = element_text(size = 5))
+
+@
+\end{center}
+\caption{Amount of Payments by Years}\label{fig:fig-3}
+\end{figure}
+The graph shows that the total amount of Payment of violation in every County is decreasing every year. The huge decreasing in 2018 maybe because of some unknown reasons in traffic policy which effect people's travel.And County NY always has the most payment amount with the largest range of fluctuations by year, County R has the least payment amount and hardly changed over time,which reflect that County NY is more busy and maybe has more large traffic.In County NY, there is a continuing decreasing of the intensity of traffic in 2021 and five Counties all stayed in a low traffic activity, maybe was affected by the epidemics, so people could not go outside.
+
+\subsection*{Heatmap of Number of violations by Precinct}
+ In this section, we want to investigate which precinct has highest violations numbers, and also which county it belongs to. Here each block represents a precinct, and the lighter the blue means higher number of violations.
+<<echo=FALSE,fig.width=7,fig.height=5,warning=FALSE>>=
+# plot 3
+ggp<- ggplot(data_melt, aes(X1, X2)) + 
+  xlab(NULL)+ 
+  ylab(NULL)+ 
+  geom_tile(aes(fill = value)) +
+  geom_segment(data = my.lines1, 
+               aes(x, y, xend = xend, yend = yend), 
+               size = 1, 
+               colour = 25,
+               inherit.aes = F) + 
+  geom_segment(data = my.lines2, 
+                 aes(x, y, xend = xend, yend = yend), 
+                 size = 1, colour = 15, inherit.aes = F) +
+  geom_segment(data = my.lines3, 
+               aes(x, y, xend = xend, yend = yend), 
+               size = 1, 
+               colour = 35, 
+               inherit.aes = F) +
+  geom_segment(data = my.lines4, 
+               aes(x , y, xend = xend, yend = yend), 
+               size = 1, 
+               colour = 45,
+               inherit.aes = F) +
+  geom_segment(data = my.lines5, 
+               aes(x, y, xend = xend, yend = yend), 
+               size = 1, colour = 8, inherit.aes = F)
+ggp + geom_text(aes(label = c(1:144)))
+
+@
+
+Since New York’s precinct numbers are not continuous, in the plot, we use the gray squares to present that these numbers of the precinct do not exist. Each blue square represents a different precinct with the formal precinct number on it. The heatmap shows the sum of violations in each precinct, and the lighter the blue, the more violations in this precinct.
+From the heat map, we can find that most of the violations happened in the black area and the blue area, which are Manhattan county and Queens county. What is more, in these counties, the 14th, 18th, and 114th precincts had more violations than the other precinct, and the precincts which are around these three precincts also had more violations than the other precinct which are away from the 14th and the 18th precincts. By searching the New York map, we found that the 14th and 18th precincts are the midtown south and north precincts which contain commercial offices, hotels, Times Square, Grand Central Terminal, the Theatre District, and Restaurant Row, and have the highest footfall in New York. 
+
+\section*{Data Visulazition}
+\subsection*{Plot one: Histrogram of Top 10 Violation Types and County}
+Figure \ref{fig:fig-5}: Here we determined the top 10 violation types from the data set and plotted the bar graph to see any correlation between the number of violations and the counties. New York City has five Counties, Richmond County(R), Kings County(K), Queens County(Q), Bronx County(BX), and New York County(NY). And the violations code with the corresponding name is as the following:\\
+\begin{tabular}{c|c}
+Violation Code & Violation Name\\\hline
+1 & "DOUBLE PARKING"\\         
+2 & "EXPIRED MUNI METER"\\         
+3 & "FAIL TO DSPLY MUNI METER RECPT" \\ 
+4 & "FIRE HYDRANT"\\        
+5 & "INSP. STICKER-EXPIRED/MISSING"\\ 
+6 & "NO PARKING-DAY/TIME LIMITS"\\
+7 & "NO PARKING-STREET CLEANING" \\
+8 & "NO STANDING-BUS STOP"\\
+9 & "NO STANDING-DAY/TIME LIMITS"\\
+10 &"REG. STICKER-EXPIRED/MISSING"\\
+\end{tabular}
+\begin{figure}[H]
+\begin{center}
+<<echo=FALSE,fig.width=7,fig.height=5>>=
+# plot 4
+barplot(num,
+        names.arg = c("[1]", "[2]", "[3]", "[4]", "[5]", "[6]", "[7]", "[8]", "[9]", "[10]"),
+        col = c("deepskyblue2", "springgreen2", "red1", "gold", "hotpink2"),
+        legend.text = levels(factor(df$County)), 
+        args.legend = list(x = 'topleft'),
+        main ="Top 10 Types of Violation and County", 
+        xlab = "Violation Code", 
+        ylab = "Number of Violations")
+@
+\end{center}
+\caption{Top 10 Violation type in Different Counties}\label{fig:fig-4}
+\end{figure}
+The graph shows some unexpected facts about these counties in the top 10 violation types. We see Richmond county(R) barely has any violations of these types. On the other hand, Queens County(Q), Kings County(K), and New York County(NY) make up a majority of these violations number. Here it may be helpful if we look at the locations of these counties. Richmond county is far away from the busy area of NYC, and the other three counties are at the heart of NYC, especially New York County, also known as Manhattan. It is the home of 1.7 million people, and only limited parking spots are available on this small land. Hence, the number of parking violations is extremely higher compared to the others.
+
+\subsection*{Plot two: Comparison Between Richmond County and Queens County}
+Figure \ref{fig:fig-5} The following graphs compare Richmond county and Queens county by examining their  top violation types. The top violations types selected by the number of violations that exceed the county average.
+
+\begin{figure}[H]
+\begin{center}
+<<echo=FALSE,fig.width=7,fig.height=3>>=
+# plot 5
+county <- c("R","NY")
+par(mfrow=c(1,2),bty='l',cex.main=1.5)
+barplot(as.numeric(Rt),col = Color[,1],main="R",ylab = "Numbers")
+barplot(as.numeric(Qt),col = Color[,1],main="Q",ylab = "Numbers")
+@
+\end{center}
+\caption{Comparison Between Richmond County and Queens County}\label{fig:fig-5}
+\end{figure}
+We see the number of violations in Richmond county is nothing compared to Queens county. The types of violation in Queens county are all related to the illegal parking, which suggests Queens does not have enough parking spots due to the old age of the district. 
+
+\subsection*{Time Frame and Number of Violations}
+Figure \ref{fig:fig-7} Here, we are going to look at the data for several years, and for each year, we calculate the number of violations given out at each time frame during one day. The time frame is separated by the night time, morning rush hours, lunch hours and afternoon rush hours. We want to see if there is any trends in different years.
+\begin{figure}[H]
+\begin{center}
+<<echo=FALSE,fig.width=8,fig.height=3>>=
+## plot New_1
+ggplot(data = Eco_from_2018,aes(x = Date)) + geom_point(aes(y = WEI),col = 'red') + geom_line(aes(y = WEI,color = 'WEI')) +geom_point(aes(y =`WEI 13 week moving average`),col = 'steelblue')+ geom_line(aes(y = `WEI 13 week moving average`,color = 'WEI 13 week moving average'))+scale_color_manual('Type', values=c('red', 'steelblue'))
+@
+\end{center}
+\caption{Weekly Economic Index (WEI) of NewYork City}\label{fig:fig-6}
+\end{figure}
+\begin{figure}[H]
+\begin{center}
+<<echo=FALSE,fig.width=7,fig.height=5>>=
+# plot 6
+barplot(height = height_mat ,
+        names.arg=c('Before 7:30A','7:30A-9:30A','9:30A-1:00P','1:00P-7:00P','After 7:00P'),
+        col = c('orange','blue','green','grey'),
+        legend.text = c('2019', '2020','2021','2022'),
+        beside = TRUE,
+        args.legend = list(x = 'topleft'),
+        cex.names = 0.8,
+        main = 'Total amount of violations during different times', 
+        xlab ="Time Frame", 
+        ylab="Number of Violations")
+@
+\end{center}
+\caption{Number of Violations by Timeframe in Different Years}\label{fig:fig-7}
+\end{figure}
+
+
+\subsection*{Model}
+Figure \ref{fig:fig-8} Here, we are going to look at a regression model.
+\begin{figure}[H]
+\begin{center}
+<<echo=FALSE,fig.width=7,fig.height=5>>=
+# plot 6
+ggplot(new_df, aes(x = log(df_economy$WEI+1), y = log(num))) +
+  geom_point() +
+  stat_smooth(method = gam, formula = y ~ s(x))+
+  xlab('Economy') + ylab('Violation number')
+
+@
+\end{center}
+\caption{Number of Violations by Timeframe in Different Years}\label{fig:fig-8}
+\end{figure}
+
+From the graph, we see a steep drop in the number of violations in every time frame starting in the year 2020, this is when the pandemic first started and the quarantine started. Many families sold their cars at the beginning of the pandemic because most people were staying home, less travelling implies less usage of cars, therefore less parking violations were given out. In 2021, there is another drop in the number. The reason for this could be the many companies in NYC offer working from home for their employees, which reduced the number of cars travelling into NYC. Hence, there are more parking spots in the city, and fewer parking violations given out.
+
+\section*{Killer Plot}
+This is our killer plot, which is inspired by the hot air balloon.The plot consists multiple parts. The square(basket) represents the time of our graph. Each side represents one year from 2018 to 2021, each side is then divide into 12 equal segment, represents every month. The colors of ballons (circle) represent the 5 different counties in New York City, and the size of each circle represent the number of violations within this county. The lines connecting the balloons and basket represent the amount of fines collected in the current month from parking violation in New York City. THe line on the edge of the killer plot shows the economy trend. We se that the economy curve has a similar trend as the number of violations. 
+\begin{thebibliography}{1}
+\bibitem{NYC open data} Department of Finance. (2016) "Open Parking and Camera Violations". Available at:https://data.cityofnewyork.us/City-Government/Open-Parking-and-Camera-Violations/nc67-uf89 (Accessed: 22 09 2022)
+\end{thebibliography}
+\end{document}
+
